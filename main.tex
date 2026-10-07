@@ -1,0 +1,886 @@
+% !TeX program = xelatex
+%==============================================================
+%  决策树与随机森林（理论篇）
+%  作者：Pengpeng Zhou（北京工商大学 经济学院）
+%  编译：xelatex main.tex  （连编两次以生成目录与页码）
+%==============================================================
+\documentclass[10pt,aspectratio=43]{beamer}
+
+%--------------------------------------------------------------
+% 数学字体（Times 风格，与正文衬线体匹配）
+%--------------------------------------------------------------
+\usepackage{mathptmx}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{trees,positioning}
+
+%--------------------------------------------------------------
+% 中文支持
+%   · 若环境装有 ctex（本地 TeX Live / Overleaf），走标准方案，
+%     中文用 Fandol 宋体，与原稿一致；
+%   · 若无 ctex，则退回 fontspec + 思源宋体的应急方案，
+%     保证在任何装有 XeLaTeX 的机器上都能编译出图。
+%--------------------------------------------------------------
+\IfFileExists{ctex.sty}{%
+  \usepackage[fontset=fandol]{ctex}%
+}{%
+  \usepackage[no-math]{fontspec}%
+  \setmainfont{Noto Serif CJK SC}%
+  \setsansfont{Noto Sans CJK SC}%
+  \XeTeXlinebreaklocale "zh"%
+  \XeTeXlinebreakskip=0pt plus 0.1pt\relax
+  % 无 ctex 时手动给出中文日期格式，保证两条路径观感一致
+  \renewcommand{\today}{\number\year 年\number\month 月\number\day 日}%
+}
+
+%--------------------------------------------------------------
+% 主题：miniframes 顶栏 + infolines 式底栏
+%--------------------------------------------------------------
+\useoutertheme[subsection=false]{miniframes}
+\useinnertheme[shadow=true]{rounded}
+\usefonttheme{serif}
+\usefonttheme{professionalfonts}   % 数学公式保持 Times 数学字体（斜体变量）
+
+\definecolor{themered}{RGB}{146,15,20}   % 主色：深红
+
+\setbeamercolor{structure}{fg=themered}
+\setbeamercolor{palette primary}{bg=themered,fg=white}
+\setbeamercolor{palette secondary}{bg=themered,fg=white}
+\setbeamercolor{palette tertiary}{bg=themered,fg=white}
+\setbeamercolor{palette quaternary}{bg=themered,fg=white}
+\setbeamercolor{section in head/foot}{bg=themered,fg=white}
+\setbeamercolor{author in head/foot}{bg=themered,fg=white}
+\setbeamercolor{title in head/foot}{bg=themered,fg=white}
+\setbeamercolor{date in head/foot}{bg=themered,fg=white}
+\setbeamercolor{title}{bg=themered,fg=white}
+\setbeamercolor{frametitle}{fg=themered,bg=white}
+\setbeamercolor{item}{fg=themered}
+\setbeamercolor{mini frame}{fg=white,bg=themered}
+
+\setbeamerfont{frametitle}{series=\bfseries,size=\large}
+\setbeamerfont{title}{series=\bfseries,size=\large}
+\setbeamerfont{section in head/foot}{family=\sffamily,size=\tiny}
+\setbeamerfont{author in head/foot}{family=\sffamily,size=\tiny}
+\setbeamerfont{title in head/foot}{family=\sffamily,size=\tiny}
+\setbeamerfont{date in head/foot}{family=\sffamily,size=\tiny}
+
+\setbeamertemplate{itemize items}[square]
+\setbeamertemplate{sections/subsections in toc}[circle]
+
+% 底栏：作者（机构） | 短标题 | 日期  页码/总页数
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+  \begin{beamercolorbox}[wd=.34\paperwidth,ht=2.25ex,dp=1ex,center]{author in head/foot}%
+    \usebeamerfont{author in head/foot}\insertshortauthor~(\insertshortinstitute)
+  \end{beamercolorbox}%
+  \begin{beamercolorbox}[wd=.36\paperwidth,ht=2.25ex,dp=1ex,center]{title in head/foot}%
+    \usebeamerfont{title in head/foot}\insertshorttitle
+  \end{beamercolorbox}%
+  \begin{beamercolorbox}[wd=.30\paperwidth,ht=2.25ex,dp=1ex,right]{date in head/foot}%
+    \usebeamerfont{date in head/foot}\insertshortdate{}\hspace*{2em}%
+    \insertframenumber{} / \inserttotalframenumber\hspace*{2ex}%
+  \end{beamercolorbox}}%
+  \vskip0pt%
+}
+
+% 版面微调
+\setlength{\leftmargini}{1.2em}
+\setbeamersize{text margin left=1.1em,text margin right=1.1em}
+
+%--------------------------------------------------------------
+\title[树模型：壹·决策树与随机森林（理论篇）]{树模型：壹·决策树与随机森林（理论篇）}
+\author[Pengpeng Zhou]{Pengpeng Zhou}
+\institute[北京工商大学]{北京工商大学\quad 经济学院\\ m3126211047@163.com}
+\date{\today}
+%--------------------------------------------------------------
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+\begin{frame}[plain]{目录}
+  \tableofcontents
+\end{frame}
+
+%==============================================================
+\section{基本概念}
+%==============================================================
+
+\begin{frame}{我们到底要预测什么？}
+  \begin{itemize}
+    \item 机器学习通常把一行数据分成两部分：
+      \begin{itemize}
+        \item \textbf{特征}（feature，记作 $X$）：预测时可以观察到的信息，例如收入、负债率、是否有逾期记录
+        \item \textbf{目标}（target，记作 $y$）：我们希望模型预测的答案
+      \end{itemize}
+  \end{itemize}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tabular}{ccccc}
+    \toprule
+    客户 & 年收入 & 负债率 & 过去是否逾期 & 最终是否违约 \\
+    \midrule
+    A & 12 万 & 低 & 否 & 否 \\
+    B & 8 万 & 高 & 是 & 是 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item 前四列是特征，最后一列是目标
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{分类与回归}
+  \begin{itemize}
+    \item 目标是有限个类别，就是\textbf{分类}：
+      \begin{itemize}
+        \item 是否违约：是 / 否；
+        \item 风险等级：低 / 中 / 高；
+        \item 股票方向：上涨 / 横盘 / 下跌。
+      \end{itemize}
+    \item 目标是连续数值，就是\textbf{回归}：
+      \begin{itemize}
+        \item 下一月损失金额；
+        \item 房贷违约损失率；
+        \item 股票下一月收益率；
+        \item 客户终身价值。
+      \end{itemize}
+    \item 分类树可以输出“违约概率 0.8”；回归树可以输出“预计损失 12 万元”，二者不是同一件事
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{决策树的基本术语}
+  \begin{itemize}
+    \item 根节点（root）：整棵树最上方的第一个判断
+    \item 内部节点（node）：中间的判断，例如 负债率 $>60\%$？
+    \item 分支（branch）：判断结果通往下一节点的路径
+    \item 叶节点（leaf）：不再继续分裂的终点
+    \item 深度（depth）：从根到节点经过的层数
+  \end{itemize}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tikzpicture}[
+    level 1/.style={sibling distance=22mm,level distance=9mm},
+    level 2/.style={sibling distance=13mm,level distance=9mm},
+    edge from parent/.style={draw,-,line width=.4pt},
+    nd/.style={draw=themered,rounded corners=1pt,fill=white,text width=24mm,align=center,inner sep=1.2mm,font=\scriptsize},
+    lf/.style={draw=themered,fill=themered!10,rounded corners=1pt,text width=18mm,align=center,inner sep=1.2mm,font=\scriptsize},
+  ]
+    \node[nd] {过去是否逾期？\\（根节点）}
+      child { node[nd] {是}
+        child { node[nd] {负债率 $>60\%$？\\（内部节点）}
+          child { node[lf] {是\\（叶节点）} }
+          child { node[lf] {否\\（叶节点）} } } }
+      child { node[lf] {否\\（叶节点）} };
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{参数与超参数}
+  \vfill
+  \begin{itemize}
+    \item \textbf{参数}是训练数据学出来的，如“根节点使用负债率，阈值为 60\%”
+    \item \textbf{超参数}是训练前人为设定的，如 \texttt{max\_depth=5}、\texttt{min\_samples\_leaf=10}
+    \item 树最终学到的“特征、阈值、左右孩子、叶节点概率/均值”是参数；训练前设置的表格是超参数
+  \end{itemize}
+  \vfill
+\end{frame}
+
+%==============================================================
+\section{分类决策树}
+%==============================================================
+
+\begin{frame}{一个节点有多“混杂”：Gini 不纯度}
+  \begin{itemize}
+    \item 以二分类“是否违约”为例：某节点有 $p_1$ 的客户违约，有 $p_0$ 的客户不违约
+  \end{itemize}
+  \[
+    Gini(S)=1-p_1^2-p_0^2
+  \]
+  \begin{itemize}
+    \item 一般的 $K$ 分类形式：
+  \end{itemize}
+  \[
+    Gini(S)=1-\sum_{k=1}^{K}p_k^2
+  \]
+  \begin{itemize}
+    \item 节点全是违约或全是不违约：$Gini=0$，最纯
+    \item 二分类各占一半：$Gini=1-0.5^2-0.5^2=0.5$，最混杂
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{切分后的总 Gini 与增益}
+  \begin{itemize}
+    \item 当前节点有 $N$ 个客户，候选切分得到左右两个子节点，人数分别为 $N_L$、$N_R$
+    \item 不能只把两个 Gini 直接相加，要按人数加权：
+  \end{itemize}
+  \[
+    Gini_{split}=\frac{N_L}{N}Gini(L)+\frac{N_R}{N}Gini(R)
+  \]
+  \begin{itemize}
+    \item 决策树选择 $Gini_{split}$ 最小的切分，等价地最大化不纯度下降：
+  \end{itemize}
+  \[
+    Gain=Gini(parent)-Gini_{split}
+  \]
+\end{frame}
+
+\begin{frame}{金融例子：选择根节点}
+  \begin{itemize}
+    \item 8 个客户，目标：是否违约（1 违约，0 不违约）
+  \end{itemize}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tabular}{cccc}
+    \toprule
+    客户 & 过去是否逾期 & 负债率是否高 & 是否违约 \\
+    \midrule
+    1 & 是 & 是 & 1 \\
+    2 & 是 & 是 & 1 \\
+    3 & 是 & 否 & 0 \\
+    4 & 否 & 否 & 0 \\
+    5 & 否 & 是 & 0 \\
+    6 & 否 & 否 & 1 \\
+    7 & 是 & 是 & 1 \\
+    8 & 否 & 否 & 0 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+\begin{frame}{金融例子：计算加权 Gini}
+  \begin{itemize}
+    \item 候选一：按“过去是否逾期”切分
+  \end{itemize}
+  \vspace{-1ex}
+  \begin{align*}
+    Gini(\text{是})&=1-\left(\tfrac34\right)^2-\left(\tfrac14\right)^2=0.375\\
+    Gini(\text{否})&=1-\left(\tfrac14\right)^2-\left(\tfrac34\right)^2=0.375
+  \end{align*}
+  \[
+    Gini_{\text{逾期}}=\frac48(0.375)+\frac48(0.375)=0.375
+  \]
+  \begin{itemize}
+    \item 候选二：按“负债率是否高”切分，同样得到 0.375
+    \item 实际数据中若“逾期”得 0.375、负债率得 0.4375，就选“逾期”作根
+    \item 核心：对\textbf{每个候选特征和每个候选阈值}计算加权 Gini，取最小者
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{中间节点如何决定？}
+  \begin{itemize}
+    \item 根节点切分后，左右两条路径是两个独立的当前节点
+    \item 每个节点只用到达自己的客户，重新比较候选切分；这不是全局特征排序
+  \end{itemize}
+  \begin{itemize}
+    \item 例：“逾期 = 是”分支有 4 人，再按负债率切分
+      \begin{itemize}
+        \item 高负债：2 人，2 人都违约，$Gini=0$
+        \item 低负债：2 人，1 人违约、1 人不违约，$Gini=0.5$
+      \end{itemize}
+  \end{itemize}
+  \[
+    Gini_{split}=\frac24(0)+\frac24(0.5)=0.25
+  \]
+  \begin{itemize}
+    \item 把 0.25 与其他候选特征的总 Gini 比较；左边可能选负债率，右边可能选信用卡使用率
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{中间节点如何决定？（示意图）}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tikzpicture}[
+    level 1/.style={sibling distance=26mm,level distance=9mm},
+    level 2/.style={sibling distance=20mm,level distance=9mm},
+    edge from parent/.style={draw,-,line width=.4pt},
+    nd/.style={draw=themered,rounded corners=1pt,fill=white,text width=20mm,align=center,inner sep=1.2mm,font=\scriptsize},
+    lf/.style={draw=themered,fill=themered!10,rounded corners=1pt,text width=20mm,align=center,inner sep=1.2mm,font=\scriptsize},
+  ]
+    \node[nd] {过去是否逾期？}
+      child { node[nd] {是（4 人）}
+        child { node[lf] {负债率切分} } }
+      child { node[nd] {否（4 人）}
+        child { node[lf] {信用卡使用率切分} } };
+  \end{tikzpicture}
+  \end{center}
+  \begin{itemize}
+    \item 每到一个节点都重新计算；同一个数值特征还可以在不同节点使用不同阈值
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{年龄、收入等数值特征的阈值}
+  \begin{itemize}
+    \item 若当前节点中的收入是 4、6、10、15 万，常见候选阈值是相邻值的中点：
+  \end{itemize}
+  \[
+    5,\quad 8,\quad 12.5
+  \]
+  \begin{itemize}
+    \item 树将分别尝试：
+  \end{itemize}
+  \begin{center}
+    \texttt{收入 $\le 5$？\qquad 收入 $\le 8$？\qquad 收入 $\le 12.5$？}
+  \end{center}
+  \begin{itemize}
+    \item 选当前节点加权 Gini 最小的阈值
+    \item 若后续只剩收入为 6、10、15 万的客户，要在该子集上重新测试 8、12.5，不能沿用根节点阶段的最佳阈值
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{多类别分类}
+  \begin{itemize}
+    \item 分类树不限于两类。风险等级为低、中、高，某节点比例为：
+  \end{itemize}
+  \[
+    p_{\text{低}}=0.5,\quad p_{\text{中}}=0.3,\quad p_{\text{高}}=0.2
+  \]
+  \[
+    Gini=1-0.5^2-0.3^2-0.2^2=0.62
+  \]
+  \begin{itemize}
+    \item 叶节点中三类数量为低 5、中 3、高 2 时，预测概率为：
+  \end{itemize}
+  \[
+    P(\text{低})=0.5,\quad P(\text{中})=0.3,\quad P(\text{高})=0.2
+  \]
+  \begin{itemize}
+    \item 最终类别通常取概率最大的“低风险”
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{分类决策树如何预测}
+  \begin{itemize}
+    \item 训练完成后，输入新客户时\textbf{不再计算 Gini，也不再重新选择节点}，只沿已经固定的判断路径走到一个叶节点：
+  \end{itemize}
+  \begin{center}
+    \texttt{新客户：逾期 = 是 $\rightarrow$ 负债率 $>60\%$ $\rightarrow$ 到达叶节点}
+  \end{center}
+  \begin{itemize}
+    \item 训练集中到达该叶节点的客户：违约 6 人，不违约 2 人
+  \end{itemize}
+  \[
+    P(\text{违约})=\frac68=0.75,\qquad P(\text{不违约})=\frac28=0.25
+  \]
+  \begin{itemize}
+    \item 分类结果是违约，因为 0.75 大于 0.25
+    \item \textbf{概率}是叶节点内的类别比例；\textbf{Gini} 用这些比例衡量混杂程度，负责训练时选切分
+  \end{itemize}
+\end{frame}
+
+%==============================================================
+\section{回归决策树}
+%==============================================================
+
+\begin{frame}{回归的目标：预测连续数值}
+  \begin{itemize}
+    \item 如果目标是客户下一月的损失金额、房产成交价或股票收益率，使用回归树
+    \item 节点的常见指标是均方误差（MSE）：
+  \end{itemize}
+  \[
+    MSE(S)=\frac{1}{|S|}\sum_{i\in S}\left(y_i-\bar{y}_S\right)^2
+  \]
+  \begin{itemize}
+    \item $S$：当前节点的样本集合；
+    \item $|S|$：当前节点的样本数；
+    \item $y_i$：第 $i$ 个样本的真实目标值；
+    \item $\bar{y}_S$：当前节点目标值的平均值
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{为什么叶节点取平均值}
+  \begin{itemize}
+    \item 同一叶节点里三笔贷款的实际损失金额是 8、10、12 万，叶节点必须用一个数 $c$ 代表它们：
+  \end{itemize}
+  \[
+    L(c)=(8-c)^2+(10-c)^2+(12-c)^2
+  \]
+  \begin{itemize}
+    \item 令它对 $c$ 的导数为零：
+  \end{itemize}
+  \[
+    \frac{dL}{dc}=-2(8-c)-2(10-c)-2(12-c)=0
+    \qquad\Longrightarrow\qquad
+    c=\frac{8+10+12}{3}=10
+  \]
+  \begin{itemize}
+    \item 平方误差下让所有样本共享一个预测值时，最优值就是平均数
+  \end{itemize}
+  \[
+    MSE=\frac{(8-10)^2+(10-10)^2+(12-10)^2}{3}=\frac{4+0+4}{3}\approx 2.667
+  \]
+\end{frame}
+
+\begin{frame}{回归树的切分与预测}
+  \begin{itemize}
+    \item 候选切分把当前节点分成 3 个样本和 2 个样本：
+  \end{itemize}
+  \[
+    MSE_{split}=\frac35MSE(L)+\frac25MSE(R)
+  \]
+  \begin{itemize}
+    \item 树选择加权 MSE 最小的特征和阈值，作用与分类树选择加权 Gini 类似：
+  \end{itemize}
+  \begin{center}
+  \begin{tabular}{lll}
+    \toprule
+    & 分类树 & 回归树 \\
+    \midrule
+    衡量指标 & Gini / 熵衡量类别混杂 & MSE / MAE 衡量数值离散 \\
+    叶节点输出 & 类别比例 & 数值 \\
+    切分准则 & 加权 Gini 越小越好 & 加权 MSE 越小越好 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item 新客户沿路径进入叶节点：训练样本损失为 8、10、12 万，树预测 10 万
+    \item 均值易受异常值影响：录入错误应清洗；真实现象可考虑 MAE / 中位数，并用验证集选择方案
+  \end{itemize}
+\end{frame}
+
+%==============================================================
+\section{超参数与剪枝}
+%==============================================================
+
+\begin{frame}{决策树的重要超参数}
+  \vspace{-1ex}
+  \begin{center}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{ll}
+    \toprule
+    超参数 & 作用与典型影响 \\
+    \midrule
+    \texttt{criterion} & 指定节点如何评价切分（Gini、熵、MSE 等） \\
+    \texttt{max\_depth} & 最大深度；太大易过拟合，太小易欠拟合 \\
+    \texttt{min\_samples\_split} & 节点至少多少样本才允许分裂；过大可能欠拟合 \\
+    \texttt{min\_samples\_leaf} & 叶节点最少样本数；增大通常更稳健，但可能丢失细节 \\
+    \texttt{max\_leaf\_nodes} & 叶节点总数上限，直接限制模型规模 \\
+    \texttt{max\_features} & 每次切分最多考虑的特征数，控制随机性与速度 \\
+    \texttt{min\_impurity\_decrease} & 不纯度至少下降多少才分裂，防止无效小切分 \\
+    \texttt{class\_weight} & 分类类别权重，处理违约少、欺诈少等不平衡问题 \\
+    \texttt{ccp\_alpha} & 成本复杂度剪枝强度，越大通常剪得越多 \\
+    \texttt{random\_state} & 固定随机结果，便于复现 \\
+    \bottomrule
+  \end{tabular}}
+  \end{center}
+  \begin{itemize}\scriptsize
+    \item 树学到的“特征、阈值、左右孩子、叶节点概率/均值”是参数；上表是训练前设置的超参数
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{预剪枝：通过超参数提前停止}
+  \begin{itemize}
+    \item 预剪枝是在生长过程中提前停止：
+  \end{itemize}
+  {\scriptsize
+  \begin{verbatim}
+DecisionTreeClassifier(
+    max_depth=5,
+    min_samples_split=20,
+    min_samples_leaf=10,
+    min_impurity_decrease=0.001
+)
+  \end{verbatim}}
+  \begin{itemize}
+    \item 常见规则：
+      \begin{itemize}
+        \item 达到 \texttt{max\_depth}，停止
+        \item 当前节点样本少于 \texttt{min\_samples\_split}，停止
+        \item 分裂后叶节点样本少于 \texttt{min\_samples\_leaf}，停止
+        \item Gini/MSE 改善小于 \texttt{min\_impurity\_decrease}，停止
+      \end{itemize}
+    \item 优点是快、直接；缺点是可能过早停止，导致欠拟合
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{后剪枝：最小化“误差＋复杂度惩罚”}
+  \begin{itemize}
+    \item 先让树长大，再删除收益很小的分支。成本复杂度剪枝常写成：
+  \end{itemize}
+  \[
+    R_\alpha(T)=R(T)+\alpha|L(T)|
+  \]
+  \begin{itemize}
+    \item $R(T)$：树的误差或节点风险；$|L(T)|$：叶节点数量；$\alpha$：每增加一个叶节点的复杂度惩罚
+    \item 例如，一个分支让训练误差减少 0.01，但多出 5 个叶子，若 $\alpha=0.003$，新增复杂度成本就是 $5\times0.003=0.015$，超过误差改善，剪掉更划算
+  \end{itemize}
+  \[
+    \underbrace{R(T_{\text{旧}})-R(T_{\text{新}})}_{\text{误差减少量}}
+    \;>\;
+    \underbrace{\alpha\bigl(|L(T_{\text{新}})|-|L(T_{\text{旧}})|\bigr)}_{\text{新增复杂度成本}}
+  \]
+  \begin{itemize}
+    \item 长树关注分裂能否改善拟合；后剪枝还要判断这点改善是否值得增加复杂度
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{过拟合的表现}
+  \begin{itemize}
+    \item 训练很好，新数据明显变差：
+      \begin{itemize}
+        \item 训练准确率很高，例如 99\%，验证准确率只有 78\%
+        \item 随着树继续变深，训练准确率持续提高，验证准确率却开始下降
+      \end{itemize}
+    \item 原因是树把训练数据里的偶然关系、噪声也学了进去，换一批数据就不适用了
+  \end{itemize}
+  \begin{itemize}
+    \item 随机森林与单棵树：过拟合的定义相同，容易程度不同
+      \begin{itemize}
+        \item 森林里的每棵树仍是决策树，可以使用上述预剪枝和后剪枝方法
+        \item 森林通过不同的样本抽样、随机选择候选特征，让多棵树产生不同预测，再汇总结果，减少单棵树的波动
+        \item 单棵树很深时容易过拟合；随机森林即使每棵树很深，整体仍可能有较好的泛化表现
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+%==============================================================
+\section{随机森林}
+%==============================================================
+
+\begin{frame}{随机森林：许多棵有差异的决策树}
+  \begin{itemize}
+    \item 随机森林不是先训练一棵“超级大树”，而是训练很多棵彼此不同的树，然后汇总
+  \end{itemize}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tikzpicture}[
+    bs/.style={draw=themered,rounded corners=1pt,fill=white,text width=18mm,align=center,inner sep=1.2mm,font=\scriptsize},
+    tr/.style={draw=themered,rounded corners=1pt,fill=white,text width=18mm,align=center,inner sep=1.2mm,font=\scriptsize},
+    vt/.style={draw=themered,fill=themered,text=white,rounded corners=1pt,text width=22mm,align=center,inner sep=1.4mm,font=\scriptsize},
+    arr/.style={-latex,line width=.5pt},
+  ]
+    \node[bs] (b1) {Bootstrap\\样本 1};
+    \node[bs, right=6mm of b1] (b2) {Bootstrap\\样本 2};
+    \node[bs, right=6mm of b2] (b3) {Bootstrap\\样本 3};
+    \node[tr, below=7mm of b1] (t1) {决策树 1};
+    \node[tr, below=7mm of b2] (t2) {决策树 2};
+    \node[tr, below=7mm of b3] (t3) {决策树 3};
+    \node[vt, below=10mm of t2] (v) {投票 / 平均\\（最终预测）};
+    \draw[arr] (b1)--(t1);
+    \draw[arr] (b2)--(t2);
+    \draw[arr] (b3)--(t3);
+    \draw[arr] (t1)--(v);
+    \draw[arr] (t2)--(v);
+    \draw[arr] (t3)--(v);
+  \end{tikzpicture}
+  \end{center}
+  \begin{itemize}
+    \item 两种随机性：Bootstrap 样本抽样 + 每个节点随机抽特征
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{随机性一：Bootstrap 有放回抽样}
+  \begin{itemize}
+    \item 原始训练集有 8 个客户：
+  \end{itemize}
+  \begin{center}
+    \texttt{1、2、3、4、5、6、7、8}
+  \end{center}
+  \begin{itemize}
+    \item 训练某棵树时抽 8 次，每次抽完放回，可能得到：
+  \end{itemize}
+  \begin{center}
+    \texttt{1、1、1、4、5、6、7、8}\qquad\qquad\texttt{2、3、3、4、5、6、6、8}
+  \end{center}
+  \begin{itemize}
+    \item 不是简单打乱顺序，而是\textbf{有放回抽样}：样本可能重复，也可能没有被抽到
+    \item 没有被抽到的样本叫该树的 OOB（out-of-bag，袋外）样本，可用于内部评估
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{随机性二：每个节点抽部分特征}
+  \begin{itemize}
+    \item 假设有 5 个特征，设置超参数 \texttt{max\_features=3}：
+  \end{itemize}
+  \begin{center}
+  \begin{tabular}{ll}
+    \toprule
+    根节点抽到： & 特征 1、特征 3、特征 5 \\
+    左子节点重新抽： & 特征 2、特征 3、特征 4 \\
+    右子节点重新抽： & 特征 1、特征 2、特征 5 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item 每个节点抽到的具体特征可以不同，数量通常由 \texttt{max\_features} 固定
+    \item 当前节点只在抽到的特征中比较 Gini/MSE，最终只选择其中一个特征真正分裂
+    \item 不同树的根节点不一定相同；同一棵树的不同节点也不必看到同一组特征
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{随机森林分类：硬投票}
+  \begin{itemize}
+    \item 硬投票只看每棵树的最终类别：
+  \end{itemize}
+  \begin{center}
+    \texttt{树1：违约\quad 树2：违约\quad 树3：不违约\quad 树4：违约\quad 树5：不违约}
+  \end{center}
+  \begin{itemize}
+    \item 违约 3 票，不违约 2 票，硬投票结果是违约。数学形式：
+  \end{itemize}
+  \[
+    \hat{y}=\arg\max_c\sum_{b=1}^{B}\mathbf{1}\left(h_b(x)=c\right)
+  \]
+\end{frame}
+
+\begin{frame}{随机森林分类：软投票}
+  \begin{itemize}
+    \item 软投票保留每棵树的概率：
+  \end{itemize}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tabular}{ccc}
+    \toprule
+    树 & $P(\text{违约})$ & $P(\text{不违约})$ \\
+    \midrule
+    1 & 0.80 & 0.20 \\
+    2 & 0.60 & 0.40 \\
+    3 & 0.40 & 0.60 \\
+    4 & 1.00 & 0.00 \\
+    5 & 0.70 & 0.30 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \[
+    P_{\text{forest}}(\text{违约})=\frac{0.80+0.60+0.40+1.00+0.70}{5}=0.70
+  \]
+  \begin{itemize}
+    \item 最终选概率最大的类别；硬投票与软投票在某些数据上可能产生不同结果
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{多类别随机森林}
+  \begin{itemize}
+    \item 三分类“低风险 / 中风险 / 高风险”完全可以直接做。三棵树输出：
+  \end{itemize}
+  \begin{center}
+  \begin{tabular}{ccc}
+    \toprule
+    树 & 概率向量 & \\
+    \midrule
+    1 & $[0.7,\ 0.2,\ 0.1]$ & \\
+    2 & $[0.5,\ 0.3,\ 0.2]$ & \\
+    3 & $[0.6,\ 0.1,\ 0.3]$ & \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item 逐类别平均：
+  \end{itemize}
+  \[
+    P=\left[\frac{0.7+0.5+0.6}{3},\ \frac{0.2+0.3+0.1}{3},\ \frac{0.1+0.2+0.3}{3}\right]
+    =[0.60,\ 0.20,\ 0.20]
+  \]
+  \begin{itemize}
+    \item 因此预测为低风险
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{随机森林回归}
+  \begin{itemize}
+    \item 每棵回归树输出一个数值。5 棵树预测某笔贷款的损失金额：
+  \end{itemize}
+  \begin{center}
+    \texttt{12 万、10 万、15 万、11 万、12 万}
+  \end{center}
+  \[
+    \hat{y}_{\text{forest}}=\frac{12+10+15+11+12}{5}=12\text{ 万元}
+  \]
+  \begin{itemize}
+    \item 这里是两层平均：
+      \begin{itemize}
+        \item 每棵树内部，叶节点目标值取平均，得到该树的预测
+        \item 森林再平均所有树的预测
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{随机森林的主要超参数}
+  \vspace{-1ex}
+  \begin{center}
+  \begin{tabular}{ll}
+    \toprule
+    超参数 & 作用 \\
+    \midrule
+    \texttt{n\_estimators} & 树的数量，越多通常越稳定，但训练更慢 \\
+    \texttt{max\_features} & 每个节点随机考虑的特征数 \\
+    \texttt{bootstrap} & 是否有放回抽样 \\
+    \texttt{max\_samples} & 每棵树抽多少样本 \\
+    \texttt{max\_depth} & 每棵基础树的最大深度 \\
+    \texttt{min\_samples\_split} & 节点继续分裂的最少样本 \\
+    \texttt{min\_samples\_leaf} & 叶节点最少样本 \\
+    \texttt{criterion} & 每棵树的 Gini、熵、MSE 等 \\
+    \texttt{class\_weight} & 分类不平衡时调整类别代价 \\
+    \texttt{oob\_score} & 是否用袋外样本估计泛化表现 \\
+    \texttt{ccp\_alpha} & 对基础树做成本复杂度剪枝 \\
+    \texttt{n\_jobs} & 并行使用的 CPU 线程数 \\
+    \texttt{random\_state} & 固定随机种子 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+\begin{frame}{随机森林为什么通常更稳定}
+  \vfill
+  \begin{itemize}
+    \item 单棵树方差高：训练样本稍微改变，根节点和后续分支可能大幅改变
+    \item 森林让很多棵相关性较低的树分别判断，再平均或投票，使极端误差部分抵消
+    \item 它主要降低\textbf{方差（variance）}
+    \item 但并不保证消除数据泄漏、标签错误或极端异常值
+    \item 树的数量增加通常让预测更稳定，不意味着森林一定越来越过拟合
+  \end{itemize}
+  \vfill
+\end{frame}
+
+%==============================================================
+\section{损失函数与金融实践}
+%==============================================================
+
+\begin{frame}{成本函数、损失函数与评价指标}
+  \vfill
+  \begin{itemize}
+    \item \textbf{节点不纯度指标}：训练树时选择切分，如 Gini、熵、MSE
+    \item \textbf{损失函数（loss）}：衡量预测与真实答案的差距，如 log loss、平方误差
+    \item \textbf{评价指标（metric）}：在验证集或测试集报告效果，如准确率、AUC、RMSE
+  \end{itemize}
+  \vfill
+\end{frame}
+
+\begin{frame}{常用损失函数}
+  \begin{itemize}
+    \item 分类树常用 Gini，熵为：
+  \end{itemize}
+  \[
+    Entropy=-\sum_k p_k\log p_k
+  \]
+  \begin{itemize}
+    \item 概率模型常用对数损失（log loss）：
+  \end{itemize}
+  \[
+    LogLoss=-\frac{1}{n}\sum_{i=1}^{n}\bigl[y_i\log p_i+(1-y_i)\log(1-p_i)\bigr]
+  \]
+  \begin{itemize}
+    \item 回归常用：
+  \end{itemize}
+  \[
+    MSE=\frac{1}{n}\sum_{i=1}^{n}\left(y_i-\hat{y}_i\right)^2
+    \qquad
+    MAE=\frac{1}{n}\sum_{i=1}^{n}\left|y_i-\hat{y}_i\right|
+  \]
+\end{frame}
+
+\begin{frame}{金融风控不能只看准确率}
+  \vfill
+  \begin{itemize}
+    \item 违约样本很少时，模型把所有人都判为“不违约”也可能准确率很高，却完全没有风控价值
+    \item 应结合召回率、精确率、F1、ROC-AUC、PR-AUC、Log Loss、校准曲线和业务成本
+    \item 如果漏掉一个真实违约客户的损失远高于误拒一个好客户，可以使用类别权重或自定义阈值，让假阴性成本更高
+  \end{itemize}
+  \vfill
+\end{frame}
+
+\begin{frame}{时间泄漏与类别不平衡}
+  \vfill
+  \begin{itemize}
+    \item 时间泄漏：预测 2024 年是否违约时，不能把 2025 年才发生的逾期、催收结果放进特征；金融数据通常应使用时间切分，而不只是随机打乱交叉验证
+    \item 类别不平衡：违约率可能只有 2\%，除准确率外要查看：
+      \begin{itemize}
+        \item 违约召回率：真实违约抓到了多少
+        \item 精确率：判为违约的人中有多少真的违约
+        \item PR-AUC
+        \item 不同阈值下的业务成本
+      \end{itemize}
+  \end{itemize}
+  \vfill
+\end{frame}
+
+\begin{frame}{概率校准与特征重要性}
+  \vfill
+  \begin{itemize}
+    \item 概率校准：随机森林的 0.8 不一定代表“长期恰好 80\% 的客户违约”；若概率用于定价、准备金或授信额度，要检查校准，可使用 Platt scaling 或 isotonic regression，并在独立验证集上评估
+    \item 特征重要性不是因果关系：树模型的 feature importance 表示预测贡献或分裂使用情况，不等于“这个因素导致违约”；要做因果结论，需要实验设计、工具变量或其他因果方法
+  \end{itemize}
+  \vfill
+\end{frame}
+
+%==============================================================
+\section{模型对比与学习路线}
+%==============================================================
+
+\begin{frame}{决策树、随机森林与提升树的区别}
+  \vspace{-1ex}
+  \begin{center}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{llll}
+    \toprule
+    对比 & 决策树 & 随机森林 & 提升树（GBDT/XGBoost） \\
+    \midrule
+    树的数量 & 1 棵 & 多棵 & 多棵 \\
+    树之间关系 & 无 & 相互独立 & 后树修正前树 \\
+    主要机制 & 递归切分 & Bootstrap + 随机特征 & 梯度/残差逐步修正 \\
+    分类合并 & 叶节点类别/概率 & 投票或概率平均 & 累加分数再转概率 \\
+    回归合并 & 叶节点均值 & 各树预测平均 & 初始值 + 修正量 \\
+    主要降低 & 建立非线性规则 & 方差 & 偏差并逐步提高精度 \\
+    是否易并行 & 一棵树内部有限 & 很容易并行 & 训练轮次有顺序依赖 \\
+    解释性 & 最强 & 较弱 & 较弱 \\
+    \bottomrule
+  \end{tabular}}
+  \end{center}
+\end{frame}
+
+\begin{frame}{提升树的核心思想（预告）}
+  \begin{itemize}
+    \item 提升树的核心公式：
+  \end{itemize}
+  \[
+    F_m(x)=F_{m-1}(x)+\eta\, f_m(x)
+  \]
+  \begin{itemize}
+    \item 平方损失回归时，下一棵树学习残差：
+  \end{itemize}
+  \[
+    r_i=y_i-F_{m-1}(x_i)
+  \]
+  \begin{itemize}
+    \item XGBoost 把预测损失和树复杂度放在一个目标中：
+  \end{itemize}
+  \[
+    Obj=\sum_i L\left(y_i,\hat{y}_i\right)+\sum_t \Omega\left(f_t\right)
+  \]
+  \begin{itemize}
+    \item 提升树不是随机森林的“简单加大版”：随机森林独立训练后平均，提升树按顺序训练并累加修正
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{从零学习时的完整流程}
+  \begin{itemize}\small
+    \item[1.] 明确目标 $y$ 是类别还是连续数值
+    \item[2.] 只用预测时可以获得的特征构造 $X$
+    \item[3.] 划分训练集、验证集和测试集（金融任务注意时间）
+    \item[4.] 训练一棵小决策树，手算一个节点的 Gini 或 MSE
+    \item[5.] 理解叶节点如何输出概率或均值
+    \item[6.] 调整 \texttt{max\_depth}、\texttt{min\_samples\_leaf} 等预剪枝参数
+    \item[7.] 训练随机森林，理解样本抽样和节点特征抽样
+    \item[8.] 比较硬投票、软投票和回归平均
+    \item[9.] 用业务相关指标评价，而不是只看准确率
+    \item[10.] 检查泄漏、异常值、概率校准和稳定性
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{最后记忆三句话}
+  \vfill
+  \begin{itemize}
+    \item \textbf{决策树}：在当前节点试切分，分类选加权 Gini/熵最小，回归选加权 MSE 最小
+    \item \textbf{随机森林}：每棵树用不同的有放回样本，每个节点看随机的一部分特征，最后投票或平均
+    \item \textbf{提升树}：后面的树不独立预测，而是按顺序修正前面模型的错误
+  \end{itemize}
+  \vfill
+\end{frame}
+
+\end{document}
